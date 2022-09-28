@@ -26,9 +26,12 @@ import os
 # run: python freetests.py
 
 # try: curl -v -X GET http://127.0.0.1:8080/
+
+# extract the HTTP method, uri, and HTTP protocol
 def get_request_line(request_string):
     return request_string.split()[0:3]
 
+# check if the requested resource is in the allowed folder
 def path_is_legal(parent_path, child_path):
     # Credit to https://stackoverflow.com/a/37095733
     # Smooth out relative path names, note: if you are concerned about symbolic links, you should use os.path.realpath too
@@ -40,8 +43,9 @@ def path_is_legal(parent_path, child_path):
     # as the comparison that deals with both paths, removing any trailing path separator
     return os.path.commonpath([parent_path]) == os.path.commonpath([parent_path, child_path])
 
+# construct the response for a status code 405
 def result_405():
-    return """HTTP/1.1 405 Method Not Allowed\r\nContent-Type: text/html\r\nConnection: Closed\r\n
+    return """HTTP/1.1 405 Method Not Allowed\r\nContent-Type: text/html\r\nConnection: close\r\n
 <html>
     <head>
         <title>405 Method Not Allowed</title>
@@ -51,8 +55,9 @@ def result_405():
     </body>
 </html>"""
 
+# construct the response for a status code 404
 def result_404():
-    return """HTTP/1.1 404 Not Found\r\nContent-Type: text/html\r\nConnection: Closed\r\n
+    return """HTTP/1.1 404 Not Found\r\nContent-Type: text/html\r\nConnection: close\r\n
 <html>
     <head>
         <title>404 Not Found</title>
@@ -62,8 +67,9 @@ def result_404():
     </body>
 </html>"""
 
+# construct the response for a status code 301, inserting the redirect location as needed
 def result_301(new_loc):
-    return """HTTP/1.1 301 Moved Permanently\r\nContent-Type: text/html\r\nConnection: Closed\r\nLocation: {new_loc}\r\n
+    return """HTTP/1.1 301 Moved Permanently\r\nContent-Type: text/html\r\nConnection: close\r\nLocation: {new_loc}\r\n
 <html>
     <head>
         <title>301 Moved Permanently</title>
@@ -75,29 +81,39 @@ def result_301(new_loc):
 </html>
 """.format(new_loc=new_loc)
 
+# construct the response for a status code 200
+# inserting the mimetype (from the file type), size of the file and contents of the file
 def result_200(path):
     file_type = path.split('.')[-1].split('/')[0]
     file_size = os.path.getsize(path)
     with open(path, 'r') as f:
-        header = "HTTP/1.1 200 OK\r\nContent-Type: text/{}\r\nContent-Size: {}\r\nConnection: Closed\r\n\n".format(file_type, file_size)
+        header = "HTTP/1.1 200 OK\r\nContent-Type: text/{}\r\nContent-Size: {}\r\nConnection: close\r\n\n".format(file_type, file_size)
         return header + f.read()
 
-
-
+# general handler to process a request and respond with the correct information
 def _handler(method, path):
+    # we can't handle anything except GET requests
     if method != 'GET':
         return result_405()
+
+    # get path to file requested and ensure it is legal
     current_location = os.path.dirname(os.path.abspath(__file__))+'/www'
     full_path = current_location + path
     if not path_is_legal(current_location, full_path):
         return result_404()
-    if os.path.isfile(full_path):
-        return result_200(full_path)
-    elif os.path.isdir(full_path):
-        if full_path[-1] == "/": #return index.html
-            return result_200(full_path+"index.html")
+
+    # if the requested path is a directory
+    if os.path.isdir(full_path):
+        if full_path[-1] == "/": #change request to index.html
+            full_path += "index.html"
         else:
             return result_301(path+"/")
+
+    # if the requested path is a file, try to return that file
+    if os.path.isfile(full_path):
+        return result_200(full_path)
+
+    # if we cant find the file return 404
     return result_404()
 
 class MyWebServer(socketserver.BaseRequestHandler):
